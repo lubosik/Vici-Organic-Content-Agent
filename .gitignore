@@ -1,0 +1,12 @@
+.env
+data/
+output/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.DS_Store
+remotion/node_modules/
+*.mp3
+*.mp4
+/tmp/
