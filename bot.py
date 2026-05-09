@@ -7,6 +7,7 @@ Commands (shortcuts — you can also just talk to me naturally):
   /forge_x         — Generate X posts for the week
   /forge_ig        — Generate Instagram carousel
   /trend           — Pull trend data
+  /podcasts        — Find new peptide podcasts from the past 7 days
   /clip <url> <start> <end> <hook> — Cut and render a clip
   /analytics       — Fastlane post analytics
   /setup           — Configure Fastlane workspace
@@ -169,6 +170,14 @@ async def cmd_trend(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await _safe_run_agent(update, "pull trend brief", sp, st, sa, sv)
 
 
+async def cmd_podcasts(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Find new peptide podcasts from the past 7 days."""
+    if not authorized(update):
+        return
+    sp, st, sa, sv = _make_senders(update)
+    await _safe_run_agent(update, "find new peptide podcasts this week", sp, st, sa, sv)
+
+
 async def cmd_clip(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Shortcut: /clip <youtube_url> <start_MM:SS> <end_MM:SS> <hook_text>"""
     if not authorized(update):
@@ -273,6 +282,7 @@ def main():
     app.add_handler(CommandHandler("forge_x", cmd_forge_x))
     app.add_handler(CommandHandler("forge_ig", cmd_forge_ig))
     app.add_handler(CommandHandler("trend", cmd_trend))
+    app.add_handler(CommandHandler("podcasts", cmd_podcasts))
     app.add_handler(CommandHandler("clip", cmd_clip))
     app.add_handler(CommandHandler("analytics", cmd_analytics))
     app.add_handler(CommandHandler("setup", cmd_setup))

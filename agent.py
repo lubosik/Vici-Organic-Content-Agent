@@ -9,10 +9,17 @@ import json
 import asyncio
 from openai import OpenAI
 from conversation_store import get_history, add_message
+from clean_text import clean
 
 
 class _ScoutComplete(Exception):
     """Raised after scout_url sends analysis — stops the agent loop cleanly."""
+    def __init__(self, result: str):
+        self.result = result
+
+
+class _TrendComplete(Exception):
+    """Raised after get_trend_brief sends trend data — stops the agent loop cleanly."""
     def __init__(self, result: str):
         self.result = result
 
@@ -183,6 +190,31 @@ TOOLS = [
             }
         }
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "produce_video_from_trend",
+            "description": "Full pipeline: get trending peptide topic, generate script, ElevenLabs voiceover, Remotion motion video, send MP4. Use when user says 'make the video', 'produce a video', 'make me a video on [topic]'.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "topic": {"type": "string", "description": "Topic title e.g. 'BPC-157 tissue repair research'"},
+                    "compound": {"type": "string", "description": "Primary compound e.g. 'BPC-157'"},
+                    "hook": {"type": "string", "description": "Opening hook line (from trend brief or user request)"},
+                    "key_data": {"type": "string", "description": "Key research data points to include"}
+                },
+                "required": ["topic", "compound", "hook", "key_data"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "find_new_podcasts",
+            "description": "Search YouTube for new peptide/longevity podcasts from the last 7 days not already in the database. Use for morning briefings or when user asks about new content.",
+            "parameters": {"type": "object", "properties": {}}
+        }
+    },
 ]
 
 
@@ -248,6 +280,15 @@ def _get_openai_client() -> OpenAI:
     )
 
 
+async def _send_clean(send_text_fn, text: str):
+    """Send text with formatting stripped."""
+    cleaned = clean(text)
+    if send_text_fn and cleaned:
+        chunks = [cleaned[i:i+4000] for i in range(0, len(cleaned), 4000)]
+        for chunk in chunks:
+            await send_text_fn(chunk)
+
+
 async def _dispatch_tool(tool_name: str, args: dict, send_progress, send_text=None) -> str:
     """Execute a tool and return the result as a string."""
     try:
@@ -257,7 +298,7 @@ async def _dispatch_tool(tool_name: str, args: dict, send_progress, send_text=No
             result = await asyncio.to_thread(analyse_url, args["url"])
             # Send full analysis immediately — Telegram 4096 char limit, split if needed
             if send_text:
-                chunks = [result[i:i+4000] for i in range(0, len(result), 4000)]
+                chunks = [clean(result)[i:i+4000] for i in range(0, len(clean(result)), 4000)]
                 for chunk in chunks:
                     await send_text(chunk)
             # Signal the agent loop to stop — raise a sentinel so run_agent can catch it
@@ -309,7 +350,25 @@ async def _dispatch_tool(tool_name: str, args: dict, send_progress, send_text=No
             await send_progress("Pulling trend data...")
             from trend import get_trend_brief
             brief = await asyncio.to_thread(get_trend_brief)
-            return json.dumps(brief)
+
+            if "error" in brief and brief["error"] not in ("fastlane_not_configured",):
+                result_text = f"Trend data unavailable: {brief.get('message', brief.get('error', '?'))}"
+            else:
+                source = brief.get("source", "unknown")
+                label = "GOOGLE TRENDS (DataForSEO)" if "dataforseo" in source else "CURATED TOPIC"
+                result_text = (
+                    f"{label}\n\n"
+                    f"Signal: {brief.get('fastlane_text', '')}\n\n"
+                    f"{'=' * 30}\n\n"
+                    f"Vici Adaptation:\n{brief.get('vici_adaptation', '')}"
+                )
+
+            if send_text:
+                chunks = [clean(result_text)[i:i+4000] for i in range(0, len(clean(result_text)), 4000)]
+                for chunk in chunks:
+                    await send_text(chunk)
+
+            raise _TrendComplete(result_text)
 
         elif tool_name == "search_web":
             await send_progress(f"Searching: {args['query']}...")
@@ -360,9 +419,47 @@ async def _dispatch_tool(tool_name: str, args: dict, send_progress, send_text=No
                     await send_text(result)
             return result
 
+        elif tool_name == "produce_video_from_trend":
+            await send_progress(f"Producing video: {args.get('topic', '')}... (3-5 minutes)")
+            from video_producer import produce_topic_video
+            result_data = await asyncio.to_thread(
+                produce_topic_video,
+                args.get("topic", "Peptide research"),
+                args.get("compound", ""),
+                args.get("hook", ""),
+                args.get("key_data", ""),
+            )
+            if result_data.get("success") and result_data.get("video_path"):
+                video_path = result_data["video_path"]
+                # Send script first
+                if result_data.get("script"):
+                    await _send_clean(send_text, f"Script:\n\n{result_data['script']}")
+                # Send voiceover
+                if result_data.get("voiceover_ok") and result_data.get("voiceover_path"):
+                    pass  # send_audio called outside dispatch
+                # Send video
+                if send_text:
+                    await send_text(f"Video rendered: {video_path}")
+                return json.dumps({"status": "success", "video_path": video_path, "voiceover_path": result_data.get("voiceover_path"), "script": result_data.get("script", "")[:500]})
+            else:
+                error = result_data.get("error", "Unknown error")
+                if send_text:
+                    await send_text(f"Video production failed: {error}")
+                return json.dumps({"status": "failed", "error": error})
+
+        elif tool_name == "find_new_podcasts":
+            await send_progress("Searching YouTube for new peptide podcasts this week...")
+            from podcast_monitor import find_new_peptide_podcasts
+            result = await asyncio.to_thread(find_new_peptide_podcasts)
+            if send_text:
+                await _send_clean(send_text, result)
+            raise _ScoutComplete(result)  # Stop loop after podcast discovery
+
         else:
             return f"Unknown tool: {tool_name}"
 
+    except (_ScoutComplete, _TrendComplete):
+        raise  # Re-raise sentinels — they are caught by run_agent
     except Exception as e:
         return f"Tool error ({tool_name}): {e}"
 
@@ -414,7 +511,7 @@ async def run_agent(chat_id: int, user_message: str, send_progress, send_text, s
         # No tool calls — final response
         if not msg.tool_calls:
             if msg.content:
-                await send_text(msg.content)
+                await send_text(clean(msg.content))
             break
 
         # Execute tool calls
@@ -437,6 +534,11 @@ async def run_agent(chat_id: int, user_message: str, send_progress, send_text, s
                 # Ask which clips they want without calling any tools
                 add_message(chat_id, "assistant", "Analysis complete. Which clips do you want me to cut? Just say \"cut clip 1\", \"cut clip 3\", etc.")
                 await send_text("Which clips do you want cut? Say \"cut clip 1\" or \"cut clips 1, 3, 5\" etc.")
+                return
+            except _TrendComplete as tc:
+                # Trend brief already sent to user. Add to history and stop.
+                add_message(chat_id, "assistant", tc.result[:500])
+                await send_text("Want me to produce a full video from this topic? Say 'make the video' and I will generate the script, ElevenLabs voiceover, and send you the MP4.")
                 return
 
             # Handle special outputs (audio, video)
@@ -499,20 +601,22 @@ async def run_agent(chat_id: int, user_message: str, send_progress, send_text, s
                 except Exception:
                     await send_text(result)
 
-            elif fn_name == "get_trend_brief":
+            elif fn_name == "produce_video_from_trend":
                 try:
                     data = json.loads(result)
-                    if "error" not in data:
-                        source = data.get("source", "fastlane")
-                        label = "APIFY TRENDS" if source == "apify_google_trends" else "FASTLANE TREND"
-                        msg_text = (
-                            f"{label}\n\n"
-                            f"Signal: {data.get('fastlane_text', '')}\n\n"
-                            f"{'='*30}\n\n"
-                            f"Vici Adaptation:\n{data.get('vici_adaptation', '')}"
-                        )
-                        await send_text(msg_text)
-                        result = "Trend brief sent."
+                    if data.get("status") == "success":
+                        # Send voiceover audio if available
+                        vo_path = data.get("voiceover_path")
+                        if vo_path:
+                            try:
+                                await send_audio(vo_path, f"Voiceover - {fn_args.get('topic', '')}")
+                            except Exception:
+                                pass
+                        # Send video
+                        video_path = data.get("video_path", "")
+                        if video_path:
+                            await send_video(video_path, f"Video - {fn_args.get('topic', '')}")
+                            result = "Video produced and sent."
                 except Exception:
                     pass
 

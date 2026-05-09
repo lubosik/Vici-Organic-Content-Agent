@@ -178,24 +178,102 @@ CTA: "Free research guide — link in bio. For research use only."
 
 
 def get_trend_brief() -> dict:
+    """
+    Main TREND function.
+    Primary: DataForSEO Google Trends (reliable, structured)
+    Fallback: Apify-based curated brief
+    Returns dict with content_type, fastlane_text, vici_adaptation, source
+    """
+    from seo_research import get_google_trends, get_keyword_search_volumes
+
+    PEPTIDE_KEYWORDS = [
+        "BPC-157", "semaglutide", "tirzepatide", "GLP-1",
+        "peptides longevity", "GHK-Cu", "tesamorelin", "retatrutide"
+    ]
+
     try:
-        content = pull_fastlane_suggestion()
-        if "error" in content:
-            return content
-        adaptation = adapt_to_vici(content)
+        # Pull Google Trends for the past 7 days
+        trends_text = get_google_trends(PEPTIDE_KEYWORDS[:5], "past_7_days")
+        vol_text = get_keyword_search_volumes(PEPTIDE_KEYWORDS[:6])
+
+        # Find the highest-interest term from trends output
+        top_term = None
+        top_score = 0
+        for line in trends_text.splitlines():
+            # Format: "• keyword: avg N/100 | peak M/100"
+            if line.startswith("•"):
+                try:
+                    kw = line.split(":")[0].replace("•", "").strip()
+                    avg_part = line.split("avg")[1].split("/100")[0].strip()
+                    score = int(avg_part)
+                    if score > top_score:
+                        top_score = score
+                        top_term = kw
+                except Exception:
+                    pass
+
+        if not top_term:
+            top_term = "BPC-157"
+
+        # Generate Vici adaptation using AI
+        client_ai = anthropic.Anthropic()
+        prompt = f"""DataForSEO Google Trends data for peptide/longevity keywords this week:
+
+{trends_text}
+
+Search volumes:
+{vol_text}
+
+Top trending term: {top_term} (avg interest {top_score}/100)
+
+Create a Vici Peptides content brief for this trend. Apply the Viral Formula:
+1. BELIEF REVERSAL: What assumption does this trend let us challenge?
+2. EMOTIONAL ENGINE: What emotion should this trigger?
+3. COMMENT WAR HOOK: What is the audience split?
+
+VICI ADAPTATION:
+- Hook (first 3 seconds, no more than 15 words):
+- 60-second script outline (4-5 bullet points):
+- Visual instructions (faceless, B-roll + voiceover):
+- Platform: TikTok or Instagram Reels
+- Why this topic is timely RIGHT NOW (use the trend data):
+
+Rules: Research framing only. No personal use. No: buy, order, results, treat, cure.
+CTA: "Free research guide, link in bio. For research use only."
+
+Write in plain text. No asterisks. No hashtags. No em-dashes. Use hyphens instead."""
+
+        adaptation = client_ai.messages.create(
+            model=os.getenv("AI_MODEL", "anthropic/claude-sonnet-4-6"),
+            max_tokens=700,
+            messages=[{"role": "user", "content": prompt}]
+        ).content[0].text.strip()
+
         return {
-            "content_id": content.get("_id", ""),
-            "content_type": content["suggestion"]["content_type"],
-            "fastlane_text": content["suggestion"]["generated_text"],
+            "content_type": "TREND-REPORT",
+            "fastlane_text": f"Top trending: {top_term} (avg {top_score}/100 interest). Full data: {trends_text[:300]}",
             "vici_adaptation": adaptation,
-            "media_urls": content.get("files", []),
-            "thumbnail_url": content.get("thumbnailUrl", ""),
-            "status": content.get("status", ""),
+            "source": "dataforseo_google_trends",
+            "top_term": top_term,
+            "top_score": top_score,
+            "media_urls": [],
         }
-    except FastlaneNotConfigured:
-        result = get_apify_trends()
-        # If apify also errored, result already contains the curated fallback
-        return result
+
+    except Exception as e:
+        print(f"[TREND] DataForSEO trend brief failed: {e}")
+        # Curated fallback — no Apify needed
+        from brand import TOPIC_QUEUE
+        from dedup import next_topic
+        topic = next_topic(TOPIC_QUEUE)
+        return {
+            "content_type": "CURATED-TOPIC",
+            "fastlane_text": f"Curated topic: {topic['title']} (score {topic['score']}/10)",
+            "vici_adaptation": f"Hook: {topic['hook']}\n\nKey data: {topic['key_data']}\n\nFormat: {topic['format']}, {topic['duration_s']}s",
+            "source": "curated_fallback",
+            "top_term": topic['compound'],
+            "top_score": topic['score'],
+            "media_urls": [],
+        }
 
 
 def get_analytics_summary() -> str:
