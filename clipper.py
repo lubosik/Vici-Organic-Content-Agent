@@ -18,6 +18,9 @@ from apify_client import ApifyClient
 REMOTION_DIR = Path(__file__).parent / "remotion"
 PUBLIC_DIR = REMOTION_DIR / "public"
 
+# Maps YouTube URL -> local full video path (persists for the session)
+_video_cache: dict[str, str] = {}
+
 
 def _ts_to_seconds(ts: str) -> float:
     """Convert MM:SS or HH:MM:SS to seconds."""
@@ -30,29 +33,36 @@ def _ts_to_seconds(ts: str) -> float:
 
 
 def _ffmpeg_path() -> str:
-    """Find ffmpeg — checks PATH, common locations, and Remotion's bundled copy."""
+    """Find ffmpeg — checks PATH, imageio-ffmpeg bundle, Remotion bundle."""
     import shutil as sh
-    if sh.which("ffmpeg"):
-        return "ffmpeg"
-    for p in ["/usr/bin/ffmpeg", "/usr/local/bin/ffmpeg", "/nix/store/*/bin/ffmpeg"]:
-        import glob
-        matches = glob.glob(p)
-        if matches:
-            return matches[0]
-    # Try Remotion's bundled ffmpeg
+
+    # 1. System PATH
+    found = sh.which("ffmpeg")
+    if found:
+        return found
+
+    # 2. imageio-ffmpeg bundled binary (works on any platform, no install needed)
     try:
-        result = subprocess.run(
-            ["node", "-e", "const {getRemotionEnvironment} = require('remotion'); console.log('ok')"],
-            cwd=str(REMOTION_DIR), capture_output=True, text=True, timeout=10
-        )
-        # Remotion stores ffmpeg in node_modules
-        bundled = list(Path(REMOTION_DIR / "node_modules").rglob("ffmpeg"))
-        bundled = [b for b in bundled if b.is_file() and os.access(b, os.X_OK)]
-        if bundled:
-            return str(bundled[0])
+        import imageio_ffmpeg
+        exe = imageio_ffmpeg.get_ffmpeg_exe()
+        if exe and Path(exe).exists():
+            print(f"[CLIPPER] Using imageio-ffmpeg: {exe}")
+            return exe
     except Exception:
         pass
-    return "ffmpeg"  # Let it fail with a clear message
+
+    # 3. Common system paths
+    for p in ["/usr/bin/ffmpeg", "/usr/local/bin/ffmpeg"]:
+        if Path(p).exists():
+            return p
+
+    # 4. Nix store (Railway nixpacks)
+    import glob
+    nix_matches = glob.glob("/nix/store/*/bin/ffmpeg")
+    if nix_matches:
+        return nix_matches[0]
+
+    return "ffmpeg"  # Let it fail with a clear error
 
 
 def _get_video_duration(path: str) -> float:
@@ -249,23 +259,46 @@ def produce_clip(youtube_url: str, start_ts: str, end_ts: str, hook_text: str) -
     cut_path = str(work_dir / "cut.mp4")
     final_path = str(work_dir / "final.mp4")
 
-    # Download
-    ok = download_via_apify(youtube_url, full_path)
-    if not ok:
-        print("[CLIPPER] Apify failed, trying yt-dlp...")
-        ok = download_via_ytdlp(youtube_url, full_path)
-    if not ok:
-        return None
+    # Enforce minimum clip duration
+    try:
+        start_secs = _ts_to_seconds(start_ts)
+        end_secs = _ts_to_seconds(end_ts)
+        duration = end_secs - start_secs
+        if duration < 30:
+            print(f"[CLIPPER] Clip too short ({duration:.0f}s < 30s minimum) — skipping")
+            return None  # Too short, don't waste Apify credits
+        print(f"[CLIPPER] Clip duration: {duration:.0f}s")
+    except Exception:
+        pass
+
+    # Check video cache — avoid re-downloading the same source for multiple clips
+    cached_full = _video_cache.get(youtube_url)
+    if cached_full and Path(cached_full).exists():
+        print(f"[CLIPPER] Using cached video ({Path(cached_full).stat().st_size // 1024 // 1024}MB): {cached_full}")
+        full_path = cached_full
+        skip_delete = True  # Don't delete cache entry
+    else:
+        skip_delete = False
+        ok = download_via_apify(youtube_url, full_path)
+        if not ok:
+            print("[CLIPPER] Apify failed, trying yt-dlp...")
+            ok = download_via_ytdlp(youtube_url, full_path)
+        if not ok:
+            return None
+        # Cache the downloaded file
+        _video_cache[youtube_url] = full_path
+        print(f"[CLIPPER] Video cached for future clips from this URL")
 
     # Cut
     if not cut_clip(full_path, start_ts, end_ts, cut_path):
         return None
 
-    # Clean up full download to save disk
-    try:
-        os.remove(full_path)
-    except Exception:
-        pass
+    # Only delete if not cached (cached copy serves future clip requests)
+    if not skip_delete:
+        try:
+            os.remove(full_path)
+        except Exception:
+            pass
 
     # Overlay
     render_overlay(cut_path, hook_text, final_path)

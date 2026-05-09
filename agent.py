@@ -10,6 +10,27 @@ import asyncio
 from openai import OpenAI
 from conversation_store import get_history, add_message
 
+
+class _ScoutComplete(Exception):
+    """Raised after scout_url sends analysis — stops the agent loop cleanly."""
+    def __init__(self, result: str):
+        self.result = result
+
+
+_stop_flags: dict[int, bool] = {}
+
+
+def stop_agent(chat_id: int):
+    _stop_flags[chat_id] = True
+
+
+def clear_stop(chat_id: int):
+    _stop_flags.pop(chat_id, None)
+
+
+def _is_stopped(chat_id: int) -> bool:
+    return _stop_flags.get(chat_id, False)
+
 ROUTER_MODEL = os.getenv("ROUTER_MODEL", "openai/gpt-4o-mini")
 
 TOOLS = [
@@ -233,10 +254,17 @@ async def _dispatch_tool(tool_name: str, args: dict, send_progress, send_text=No
         if tool_name == "scout_url":
             await send_progress(f"Analysing {args['url']}...")
             from scout import analyse_url
-            return await asyncio.to_thread(analyse_url, args["url"])
+            result = await asyncio.to_thread(analyse_url, args["url"])
+            # Send full analysis immediately — Telegram 4096 char limit, split if needed
+            if send_text:
+                chunks = [result[i:i+4000] for i in range(0, len(result), 4000)]
+                for chunk in chunks:
+                    await send_text(chunk)
+            # Signal the agent loop to stop — raise a sentinel so run_agent can catch it
+            raise _ScoutComplete(result)
 
         elif tool_name == "cut_and_render_clip":
-            await send_progress(f"Downloading and cutting clip {args['start_time']} -> {args['end_time']}... (this takes 2-4 minutes)")
+            await send_progress(f"Downloading and cutting clip {args['start_time']} -> {args['end_time']}... (2-4 min)")
             from clipper import produce_clip
             path = await asyncio.to_thread(
                 produce_clip,
@@ -357,6 +385,11 @@ async def run_agent(chat_id: int, user_message: str, send_progress, send_text, s
     while iteration < MAX_ITERATIONS:
         iteration += 1
 
+        if _is_stopped(chat_id):
+            clear_stop(chat_id)
+            await send_text("Stopped.")
+            return
+
         clean_history = _sanitize_history(history)
         try:
             response = await asyncio.to_thread(
@@ -392,7 +425,19 @@ async def run_agent(chat_id: int, user_message: str, send_progress, send_text, s
             except Exception:
                 fn_args = {}
 
-            result = await _dispatch_tool(fn_name, fn_args, send_progress, send_text)
+            try:
+                result = await _dispatch_tool(fn_name, fn_args, send_progress, send_text)
+            except _ScoutComplete as sc:
+                # Analysis already sent to user. Add to history and stop.
+                add_message(chat_id, "tool", json.dumps({
+                    "tool_call_id": tc.id,
+                    "role": "tool",
+                    "content": sc.result[:1000]
+                }))
+                # Ask which clips they want without calling any tools
+                add_message(chat_id, "assistant", "Analysis complete. Which clips do you want me to cut? Just say \"cut clip 1\", \"cut clip 3\", etc.")
+                await send_text("Which clips do you want cut? Say \"cut clip 1\" or \"cut clips 1, 3, 5\" etc.")
+                return
 
             # Handle special outputs (audio, video)
             if fn_name == "forge_content_package":

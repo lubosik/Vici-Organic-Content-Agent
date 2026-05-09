@@ -12,6 +12,7 @@ Commands (shortcuts — you can also just talk to me naturally):
   /setup           — Configure Fastlane workspace
   /clear           — Clear in-memory conversation history (history persists in DB)
   /forget          — Permanently delete all conversation history (fresh start)
+  /stop            — Cancel any running pipeline, clear in-memory history
   /help            — Show this message
 
 Or just talk to me naturally: "analyse this video", "make me 5 posts", "what's trending"
@@ -215,6 +216,21 @@ async def cmd_setup(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"Setup failed: {e}")
 
 
+async def cmd_stop(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Cancel any running pipeline and clear in-memory history."""
+    if not authorized(update):
+        return
+    from agent import stop_agent
+    from conversation_store import clear_history
+    chat_id = update.effective_chat.id
+    stop_agent(chat_id)
+    clear_history(chat_id)
+    await update.message.reply_text(
+        "Stopped. Any running clip pipeline has been cancelled.\n\n"
+        "In-memory history cleared — you can start fresh."
+    )
+
+
 # ── Natural language handler (all non-command messages) ───────────────────────
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -261,6 +277,7 @@ def main():
     app.add_handler(CommandHandler("analytics", cmd_analytics))
     app.add_handler(CommandHandler("setup", cmd_setup))
     app.add_handler(CommandHandler("forget", cmd_forget))
+    app.add_handler(CommandHandler("stop", cmd_stop))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     print("VICI CONTENT ENGINE v2 — Conversational agent running.")

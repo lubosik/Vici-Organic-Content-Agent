@@ -85,9 +85,10 @@ YOUR TASK
 CRITICAL RULES BEFORE STARTING:
 1. SKIP THE FIRST 2 MINUTES. The opening 0:00-2:00 is trailer/cold open content — never clip it.
 2. Find EVERY viral moment in the content. There is no limit. Do not stop at 5.
-3. Every clip must cover a DIFFERENT topic, angle, or moment. No two clips can overlap in subject matter.
-4. Score EVERY candidate. Only include clips that score 6+ using the scoring framework.
-5. Rank ALL identified clips by virality score, highest first.
+3. Every clip must cover a DIFFERENT topic, angle, or moment. No two clips can overlap.
+4. MINIMUM CLIP DURATION: 30 seconds. Ideal: 45-90 seconds. Never identify a clip shorter than 30 seconds.
+5. Score EVERY candidate. Only include clips that score 6+ using the scoring framework.
+6. Rank ALL identified clips by virality score, highest first.
 
 For each clip found, return this EXACT format:
 
