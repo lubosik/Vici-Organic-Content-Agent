@@ -135,6 +135,33 @@ TOOLS = [
             }
         }
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "seo_keyword_research",
+            "description": "Get SEO data for peptide/longevity topics: search volumes, related keywords, Google Trends. Use to find high-opportunity content topics and validate what people are actually searching for. Call with mode='opportunities' for a full report.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "mode": {
+                        "type": "string",
+                        "description": "What to fetch: 'volumes' (search volumes), 'related' (related keywords for a seed), 'trends' (Google Trends), 'opportunities' (full content opportunity report)",
+                        "enum": ["volumes", "related", "trends", "opportunities"]
+                    },
+                    "keywords": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Keywords to research e.g. ['BPC-157', 'semaglutide']"
+                    },
+                    "seed_keyword": {
+                        "type": "string",
+                        "description": "Single seed keyword for related mode"
+                    }
+                },
+                "required": ["mode"]
+            }
+        }
+    },
 ]
 
 
@@ -226,6 +253,26 @@ async def _dispatch_tool(tool_name: str, args: dict, send_progress) -> str:
             days = args.get("days", 7)
             result = await asyncio.to_thread(get_memory_digest, days)
             await send_text(result)
+            return result
+
+        elif tool_name == "seo_keyword_research":
+            mode = args.get("mode", "opportunities")
+            await send_progress(f"Pulling SEO data ({mode})...")
+            from seo_research import (
+                get_keyword_search_volumes, get_related_keywords,
+                get_google_trends, get_content_opportunities
+            )
+            keywords = args.get("keywords", [])
+            seed = args.get("seed_keyword", "")
+            if mode == "volumes" and keywords:
+                result = await asyncio.to_thread(get_keyword_search_volumes, keywords)
+            elif mode == "related" and seed:
+                result = await asyncio.to_thread(get_related_keywords, seed)
+            elif mode == "trends" and keywords:
+                result = await asyncio.to_thread(get_google_trends, keywords)
+            else:
+                result = await asyncio.to_thread(get_content_opportunities)
+                await send_text(result)
             return result
 
         else:
