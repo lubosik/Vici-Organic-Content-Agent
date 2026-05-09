@@ -24,6 +24,12 @@ class _TrendComplete(Exception):
         self.result = result
 
 
+class _VideoComplete(Exception):
+    """Raised after produce_video_from_trend finishes (success or failure) — stops agent loop."""
+    def __init__(self, message: str):
+        self.message = message
+
+
 _stop_flags: dict[int, bool] = {}
 
 
@@ -420,32 +426,53 @@ async def _dispatch_tool(tool_name: str, args: dict, send_progress, send_text=No
             return result
 
         elif tool_name == "produce_video_from_trend":
-            await send_progress(f"Producing video: {args.get('topic', '')}... (3-5 minutes)")
-            from video_producer import produce_topic_video
-            result_data = await asyncio.to_thread(
-                produce_topic_video,
-                args.get("topic", "Peptide research"),
-                args.get("compound", ""),
-                args.get("hook", ""),
-                args.get("key_data", ""),
-            )
+            topic = args.get("topic", "peptide research")
+            compound = args.get("compound", "")
+            hook = args.get("hook", "")
+            key_data = args.get("key_data", "")
+
+            await send_progress(f"Producing video: {topic}... (3-5 minutes)")
+
+            try:
+                from video_producer import produce_topic_video
+                result_data = await asyncio.to_thread(
+                    produce_topic_video, topic, compound, hook, key_data
+                )
+            except Exception as e:
+                friendly = f"Video production hit a technical issue: {type(e).__name__}. The team has been notified. In the meantime, your script and voiceover are ready -- send to ElevenLabs manually."
+                if send_text:
+                    await send_text(friendly)
+                raise _VideoComplete(friendly)
+
             if result_data.get("success") and result_data.get("video_path"):
                 video_path = result_data["video_path"]
-                # Send script first
-                if result_data.get("script"):
-                    await _send_clean(send_text, f"Script:\n\n{result_data['script']}")
-                # Send voiceover
+                script = result_data.get("script", "")
+                if script and send_text:
+                    await send_text(f"Script:\n\n{clean(script)}")
                 if result_data.get("voiceover_ok") and result_data.get("voiceover_path"):
-                    pass  # send_audio called outside dispatch
-                # Send video
-                if send_text:
-                    await send_text(f"Video rendered: {video_path}")
-                return json.dumps({"status": "success", "video_path": video_path, "voiceover_path": result_data.get("voiceover_path"), "script": result_data.get("script", "")[:500]})
+                    await send_audio(result_data["voiceover_path"], f"Voiceover: {topic}")
+                await send_video(video_path, f"Video: {topic}")
+                raise _VideoComplete(f"Video delivered: {topic}")
             else:
                 error = result_data.get("error", "Unknown error")
+                # User-friendly error message -- no technical details
+                if "npm" in error or "node" in error.lower() or "remotion" in error.lower():
+                    msg = "Video render requires Node.js which is not yet available in this environment. Your script and voiceover are ready. Deploy to Railway to enable full video rendering."
+                elif "voiceover" in error.lower():
+                    msg = "Voiceover generation failed. Check that your ElevenLabs API key is valid."
+                elif "script" in error.lower():
+                    msg = "Script generation failed. Try again with a more specific topic."
+                else:
+                    msg = f"Video production failed. The script is ready above. {error[:80]}"
+
+                # Still send script if we have it
+                if result_data.get("script") and send_text:
+                    await send_text(f"Script:\n\n{clean(result_data['script'])}")
+                if result_data.get("voiceover_ok") and result_data.get("voiceover_path"):
+                    await send_audio(result_data["voiceover_path"], f"Voiceover: {topic}")
                 if send_text:
-                    await send_text(f"Video production failed: {error}")
-                return json.dumps({"status": "failed", "error": error})
+                    await send_text(msg)
+                raise _VideoComplete(msg)
 
         elif tool_name == "find_new_podcasts":
             await send_progress("Searching YouTube for new peptide podcasts this week...")
@@ -458,10 +485,23 @@ async def _dispatch_tool(tool_name: str, args: dict, send_progress, send_text=No
         else:
             return f"Unknown tool: {tool_name}"
 
-    except (_ScoutComplete, _TrendComplete):
-        raise  # Re-raise sentinels — they are caught by run_agent
+    except (_ScoutComplete, _TrendComplete, _VideoComplete):
+        raise  # These are intentional control flow, not errors
     except Exception as e:
-        return f"Tool error ({tool_name}): {e}"
+        print(f"[AGENT] Tool error ({tool_name}): {e}")
+        friendly_errors = {
+            "ffmpeg": "Video processing requires ffmpeg which is not available in this environment.",
+            "npm": "Video rendering requires Node.js which is not available in this environment.",
+            "node": "Video rendering requires Node.js which is not available.",
+            "APIFY_API_KEY": "Apify API key not configured.",
+            "DATABASE_URL": "Database not connected.",
+            "ElevenLabs": "Voiceover generation failed. Check ElevenLabs API key.",
+            "openai": "AI model call failed. Check OpenRouter API key.",
+        }
+        for keyword, friendly_msg in friendly_errors.items():
+            if keyword.lower() in str(e).lower():
+                return friendly_msg
+        return f"Something went wrong with {tool_name}. Please try again."
 
 
 async def run_agent(chat_id: int, user_message: str, send_progress, send_text, send_audio, send_video) -> None:
@@ -540,6 +580,9 @@ async def run_agent(chat_id: int, user_message: str, send_progress, send_text, s
                 add_message(chat_id, "assistant", tc.result[:500])
                 await send_text("Want me to produce a full video from this topic? Say 'make the video' and I will generate the script, ElevenLabs voiceover, and send you the MP4.")
                 return
+            except _VideoComplete as vc:
+                add_message(chat_id, "assistant", vc.message)
+                return
 
             # Handle special outputs (audio, video)
             if fn_name == "forge_content_package":
@@ -600,25 +643,6 @@ async def run_agent(chat_id: int, user_message: str, send_progress, send_text, s
                         await send_text(result)
                 except Exception:
                     await send_text(result)
-
-            elif fn_name == "produce_video_from_trend":
-                try:
-                    data = json.loads(result)
-                    if data.get("status") == "success":
-                        # Send voiceover audio if available
-                        vo_path = data.get("voiceover_path")
-                        if vo_path:
-                            try:
-                                await send_audio(vo_path, f"Voiceover - {fn_args.get('topic', '')}")
-                            except Exception:
-                                pass
-                        # Send video
-                        video_path = data.get("video_path", "")
-                        if video_path:
-                            await send_video(video_path, f"Video - {fn_args.get('topic', '')}")
-                            result = "Video produced and sent."
-                except Exception:
-                    pass
 
             # Add tool result to history
             add_message(chat_id, "tool", json.dumps({

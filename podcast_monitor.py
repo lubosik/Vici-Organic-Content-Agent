@@ -145,6 +145,7 @@ def find_new_peptide_podcasts() -> str:
 
     search_terms = _generate_search_terms()
     print(f"[PODCAST MONITOR] Using {len(search_terms)} dynamic search queries")
+    print(f"[PODCAST MONITOR] Search queries this run: {search_terms}")
     for term in search_terms:
         try:
             print(f"[PODCAST MONITOR] Searching: {term}")
@@ -213,7 +214,15 @@ def find_new_peptide_podcasts() -> str:
             print(f"[PODCAST MONITOR] Search '{term}' failed: {e}")
 
     if not all_videos:
-        return "No new peptide podcasts found in the past 7 days that are not already in the database."
+        query_preview = ", ".join(f'"{q}"' for q in search_terms[:3])
+        return (
+            f"No new peptide podcasts found this week.\n\n"
+            f"Searched YouTube for: {query_preview} (and {max(len(search_terms) - 3, 0)} more queries).\n\n"
+            f"This could mean:\n"
+            f"- All recent podcasts are already in your database\n"
+            f"- YouTube returned no results under 7 days for these terms\n\n"
+            f"Try again tomorrow or send me a specific YouTube channel URL to scout."
+        )
 
     # Sort by views
     all_videos.sort(key=lambda x: x["views"], reverse=True)

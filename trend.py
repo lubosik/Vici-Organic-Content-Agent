@@ -249,9 +249,16 @@ Write in plain text. No asterisks. No hashtags. No em-dashes. Use hyphens instea
             messages=[{"role": "user", "content": prompt}]
         ).content[0].text.strip()
 
+        # Use search volume as the primary signal (more meaningful than trend spike score)
+        vol_signal = ""
+        for line in vol_text.splitlines():
+            if top_term.lower() in line.lower() and "/mo" in line:
+                vol_signal = line.strip()
+                break
+
         return {
             "content_type": "TREND-REPORT",
-            "fastlane_text": f"Top trending: {top_term} (avg {top_score}/100 interest). Full data: {trends_text[:300]}",
+            "fastlane_text": f"Top compound this week: {top_term}. {vol_signal or f'Trend interest: {top_score}/100'}. Full trends: {trends_text[:200]}",
             "vici_adaptation": adaptation,
             "source": "dataforseo_google_trends",
             "top_term": top_term,
