@@ -1,5 +1,5 @@
 """
-Per-chat conversation history — persists to SQLite across bot restarts.
+Per-chat conversation history — persists to PostgreSQL across bot restarts.
 The bot remembers every conversation across sessions, days, weeks.
 """
 
@@ -51,7 +51,11 @@ PERSONALITY: Direct. Fast. No filler. You are a specialist tool. Short status up
 
 def _build_history(chat_id: int) -> list:
     """Build history from DB: system prompt + last 40 persisted messages."""
-    persisted = load_messages(chat_id, limit=40)
+    try:
+        persisted = load_messages(chat_id, limit=40)
+    except Exception as e:
+        print(f"[MEMORY] DB load failed: {e}")
+        persisted = []
     return [{"role": "system", "content": SYSTEM_PROMPT}] + persisted
 
 
@@ -63,13 +67,16 @@ def get_history(chat_id: int) -> list:
 
 
 def add_message(chat_id: int, role: str, content):
-    """Add a message to history (in-memory + persisted to SQLite)."""
+    """Add a message to history (in-memory + persisted to PostgreSQL)."""
     history = get_history(chat_id)
 
     if isinstance(content, list) and role == "assistant":
         # Tool calls from assistant
         history.append({"role": "assistant", "tool_calls": content})
-        save_message(chat_id, "assistant", content)
+        try:
+            save_message(chat_id, "assistant", content)
+        except Exception as e:
+            print(f"[MEMORY] DB write failed: {e}")
     elif role == "tool":
         if isinstance(content, str):
             try:
@@ -79,10 +86,16 @@ def add_message(chat_id: int, role: str, content):
                 history.append({"role": "tool", "content": content})
         else:
             history.append(content)
-        save_message(chat_id, "tool", content)
+        try:
+            save_message(chat_id, "tool", content)
+        except Exception as e:
+            print(f"[MEMORY] DB write failed: {e}")
     else:
         history.append({"role": role, "content": str(content)})
-        save_message(chat_id, role, str(content))
+        try:
+            save_message(chat_id, role, str(content))
+        except Exception as e:
+            print(f"[MEMORY] DB write failed: {e}")
 
     # Keep in-memory cache at system prompt + last 40 messages
     if len(history) > 41:
@@ -97,7 +110,10 @@ def clear_history(chat_id: int):
 def clear_all_history(chat_id: int):
     """Permanently delete all history for this chat from DB and memory."""
     _cache.pop(chat_id, None)
-    from content_db import _conn, init_db
-    init_db()
-    with _conn() as conn:
-        conn.execute("DELETE FROM conversation_messages WHERE chat_id = ?", (chat_id,))
+    try:
+        from content_db import _conn
+        with _conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM conversation_messages WHERE chat_id = %s", (chat_id,))
+    except Exception as e:
+        print(f"[MEMORY] DB clear failed: {e}")

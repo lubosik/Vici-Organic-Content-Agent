@@ -9,7 +9,7 @@ import ai_client as anthropic
 from brand import TOPIC_QUEUE, CTA, BANNED_WORDS, INSTAGRAM_BANNED_TERMS
 from dedup import next_topic, is_duplicate, record, mark_topic_done
 from elevenlabs_client import generate_voiceover
-from content_db import get_recent_analyses
+from content_db import get_recent_analyses, save_produced_content
 
 
 def _claude(prompt: str, max_tokens: int = 1500) -> str:
@@ -65,6 +65,19 @@ Output ONLY the script. No stage directions, no headers, no commentary.
         script = _claude(prompt, max_tokens=800)
 
     record(script, "scripts", {"topic_id": topic["id"]})
+
+    # Save to DB
+    try:
+        save_produced_content(
+            content_type="script",
+            content=script,
+            topic_id=topic.get("id"),
+            topic_title=topic.get("title"),
+            metadata={"format": topic.get("format"), "duration_s": topic.get("duration_s")}
+        )
+    except Exception as e:
+        print(f"[FORGE] DB save script failed: {e}")
+
     return script
 
 
@@ -87,7 +100,19 @@ Format:
 
 Output only the numbered list.
 """
-    return _claude(prompt, max_tokens=600)
+    broll = _claude(prompt, max_tokens=600)
+
+    try:
+        save_produced_content(
+            content_type="broll_list",
+            content=broll,
+            topic_id=topic.get("id"),
+            topic_title=topic.get("title"),
+        )
+    except Exception as e:
+        print(f"[FORGE] DB save broll failed: {e}")
+
+    return broll
 
 
 def generate_capcut_guide(topic: dict, script: str) -> str:
@@ -179,6 +204,16 @@ POST 1 [type]:
 """
     result = _claude(prompt, max_tokens=2000)
     record(result, "x_posts")
+
+    try:
+        save_produced_content(
+            content_type="x_posts",
+            content=result,
+            metadata={"count": count}
+        )
+    except Exception as e:
+        print(f"[FORGE] DB save x_posts failed: {e}")
+
     return result
 
 
@@ -227,12 +262,24 @@ Output as JSON:
 """
     raw = _claude(prompt, max_tokens=1500)
     match = re.search(r'\{.*\}', raw, re.DOTALL)
+    carousel_result = {"raw": raw}
     if match:
         try:
-            return json.loads(match.group())
+            carousel_result = json.loads(match.group())
         except json.JSONDecodeError:
             pass
-    return {"raw": raw}
+
+    try:
+        save_produced_content(
+            content_type="instagram_carousel",
+            content=json.dumps(carousel_result) if isinstance(carousel_result, dict) else str(carousel_result),
+            topic_id=topic.get("id"),
+            topic_title=topic.get("title"),
+        )
+    except Exception as e:
+        print(f"[FORGE] DB save carousel failed: {e}")
+
+    return carousel_result
 
 
 def produce_content_package(topic: dict = None) -> dict:
@@ -256,6 +303,18 @@ def produce_content_package(topic: dict = None) -> dict:
     vo_success = generate_voiceover(script, vo_path)
     assets["voiceover_path"] = vo_path if vo_success else None
     assets["voiceover_ok"] = vo_success
+
+    if vo_success and vo_path:
+        try:
+            save_produced_content(
+                content_type="voiceover",
+                content=script,
+                topic_id=topic.get("id"),
+                topic_title=topic.get("title"),
+                file_path=vo_path,
+            )
+        except Exception as e:
+            print(f"[FORGE] DB save voiceover failed: {e}")
 
     print("  -> Writing B-roll list...")
     broll = generate_broll_list(topic, script)

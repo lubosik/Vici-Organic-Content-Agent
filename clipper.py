@@ -10,6 +10,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 from datetime import datetime
+from content_db import save_rendered_clip
 
 REMOTION_DIR = Path(__file__).parent / "remotion"
 PUBLIC_DIR = REMOTION_DIR / "public"
@@ -199,4 +200,18 @@ def produce_clip(youtube_url: str, start_ts: str, end_ts: str, hook_text: str) -
         return None
 
     render_with_remotion(cut_path, hook_text, final_path)
-    return final_path if Path(final_path).exists() else cut_path
+    final_path_resolved = final_path if Path(final_path).exists() else cut_path
+
+    if final_path_resolved and Path(final_path_resolved).exists():
+        try:
+            save_rendered_clip(
+                source_url=youtube_url,
+                start_time=start_ts,
+                end_time=end_ts,
+                hook_text=hook_text,
+                file_path=final_path_resolved,
+            )
+        except Exception as e:
+            print(f"[CLIPPER] DB save failed: {e}")
+
+    return final_path_resolved

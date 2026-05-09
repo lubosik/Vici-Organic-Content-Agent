@@ -232,8 +232,13 @@ def main():
     os.makedirs("output", exist_ok=True)
     os.makedirs("output/clips", exist_ok=True)
 
-    from content_db import init_db
-    init_db()
+    try:
+        from content_db import init_db
+        init_db()
+        print("[DB] PostgreSQL connected and schema ready.")
+    except Exception as e:
+        print(f"[DB] WARNING: Could not connect to PostgreSQL: {e}")
+        print("[DB] Bot will run but data will not be persisted.")
 
     fastlane_key = os.getenv("FASTLANE_API_KEY")
     if fastlane_key and not os.path.exists("data/fastlane_angles.json"):

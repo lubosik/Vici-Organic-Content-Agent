@@ -7,7 +7,7 @@ import ai_client as anthropic
 from ingestor import ingest_url
 from formula import build_clip_analysis_prompt
 from dedup import record
-from content_db import save_scout_analysis
+from content_db import save_scout_analysis, save_identified_clip, url_already_scouted
 
 
 def analyse_url(url: str) -> str:
@@ -19,6 +19,14 @@ def analyse_url(url: str) -> str:
 
     title = metadata.get("title", url)
     print(f"[SCOUT] Content ingested: {title[:60]}")
+
+    # Check if already scouted
+    try:
+        if url_already_scouted(url):
+            print(f"[SCOUT] URL already scouted: {url}")
+            # Still run analysis but note it's a repeat
+    except Exception:
+        pass
 
     client = anthropic.Anthropic()
     prompt = build_clip_analysis_prompt(content, source_type, url)
@@ -34,27 +42,20 @@ def analyse_url(url: str) -> str:
     except Exception as e:
         return f"AI analysis failed: {e}"
 
-    os.makedirs("data", exist_ok=True)
-    log_entry = {
-        "url": url,
-        "title": title,
-        "source_type": source_type,
-        "analysed_at": datetime.now().isoformat(),
-        "analysis_preview": analysis[:300]
-    }
-    clips_log_path = "data/clips_log.json"
-    clips_log = []
-    if os.path.exists(clips_log_path):
-        with open(clips_log_path) as f:
-            clips_log = json.load(f)
-    clips_log.append(log_entry)
-    with open(clips_log_path, "w") as f:
-        json.dump(clips_log[-100:], f, indent=2)
-
     try:
-        save_scout_analysis(url, title, source_type, analysis)
-    except Exception:
-        pass
+        scout_id = save_scout_analysis(
+            url=url,
+            title=title,
+            source_type=source_type,
+            analysis=analysis,
+            channel=metadata.get("channel"),
+            duration_s=metadata.get("duration_s"),
+            view_count=metadata.get("view_count"),
+            transcript=metadata.get("transcript_text"),
+        )
+    except Exception as e:
+        print(f"[SCOUT] DB save failed: {e}")
+        scout_id = None
 
     if source_type == "YouTube Video":
         duration = metadata.get("duration_s", 0)
