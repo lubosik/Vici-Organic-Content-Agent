@@ -75,10 +75,23 @@ def add_message(chat_id: int, role: str, content):
     history = get_history(chat_id)
 
     if isinstance(content, list) and role == "assistant":
-        # Tool calls from assistant
-        history.append({"role": "assistant", "tool_calls": content})
+        # Convert Pydantic tool call objects to plain serialisable dicts
+        tool_calls_dicts = []
+        for tc in content:
+            try:
+                tool_calls_dicts.append({
+                    "id": tc.id,
+                    "type": "function",
+                    "function": {
+                        "name": tc.function.name,
+                        "arguments": tc.function.arguments,
+                    }
+                })
+            except Exception:
+                tool_calls_dicts.append(tc)
+        history.append({"role": "assistant", "tool_calls": tool_calls_dicts})
         try:
-            save_message(chat_id, "assistant", content)
+            save_message(chat_id, "assistant", json.dumps(tool_calls_dicts))
         except Exception as e:
             print(f"[MEMORY] DB write failed: {e}")
     elif role == "tool":

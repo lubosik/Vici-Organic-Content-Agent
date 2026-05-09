@@ -172,7 +172,7 @@ def _get_openai_client() -> OpenAI:
     )
 
 
-async def _dispatch_tool(tool_name: str, args: dict, send_progress) -> str:
+async def _dispatch_tool(tool_name: str, args: dict, send_progress, send_text=None) -> str:
     """Execute a tool and return the result as a string."""
     try:
         if tool_name == "scout_url":
@@ -252,7 +252,8 @@ async def _dispatch_tool(tool_name: str, args: dict, send_progress) -> str:
             from memory import get_memory_digest
             days = args.get("days", 7)
             result = await asyncio.to_thread(get_memory_digest, days)
-            await send_text(result)
+            if send_text:
+                await send_text(result)
             return result
 
         elif tool_name == "seo_keyword_research":
@@ -272,7 +273,8 @@ async def _dispatch_tool(tool_name: str, args: dict, send_progress) -> str:
                 result = await asyncio.to_thread(get_google_trends, keywords)
             else:
                 result = await asyncio.to_thread(get_content_opportunities)
-                await send_text(result)
+                if send_text:
+                    await send_text(result)
             return result
 
         else:
@@ -294,19 +296,23 @@ async def run_agent(chat_id: int, user_message: str, send_progress, send_text, s
     add_message(chat_id, "user", user_message)
     history = get_history(chat_id)
 
-    MAX_ITERATIONS = 5
+    MAX_ITERATIONS = 8
     iteration = 0
 
     while iteration < MAX_ITERATIONS:
         iteration += 1
 
-        response = await asyncio.to_thread(
-            client.chat.completions.create,
-            model=ROUTER_MODEL,
-            messages=history,
-            tools=TOOLS,
-            tool_choice="auto",
-        )
+        try:
+            response = await asyncio.to_thread(
+                client.chat.completions.create,
+                model=ROUTER_MODEL,
+                messages=history,
+                tools=TOOLS,
+                tool_choice="auto",
+            )
+        except Exception as e:
+            await send_text(f"Agent error calling AI: {e}\n\nPlease try again.")
+            return
 
         msg = response.choices[0].message
 
@@ -330,7 +336,7 @@ async def run_agent(chat_id: int, user_message: str, send_progress, send_text, s
             except Exception:
                 fn_args = {}
 
-            result = await _dispatch_tool(fn_name, fn_args, send_progress)
+            result = await _dispatch_tool(fn_name, fn_args, send_progress, send_text)
 
             # Handle special outputs (audio, video)
             if fn_name == "forge_content_package":

@@ -116,6 +116,19 @@ async def cmd_forget(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+async def _safe_run_agent(update: Update, message: str, sp, st, sa, sv):
+    """Run agent with error handling — always responds, never silent."""
+    from agent import run_agent
+    try:
+        await run_agent(update.effective_chat.id, message, sp, st, sa, sv)
+    except Exception as e:
+        logger.exception("run_agent failed")
+        try:
+            await update.message.reply_text(f"Something went wrong: {e}\n\nPlease try again.")
+        except Exception:
+            pass
+
+
 async def cmd_scout(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not authorized(update):
         return
@@ -123,42 +136,36 @@ async def cmd_scout(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not args:
         await update.message.reply_text("Usage: /scout <url>")
         return
-    url = args[0]
     sp, st, sa, sv = _make_senders(update)
-    from agent import run_agent
-    await run_agent(update.effective_chat.id, f"Analyse this URL: {url}", sp, st, sa, sv)
+    await _safe_run_agent(update, f"Analyse this URL: {args[0]}", sp, st, sa, sv)
 
 
 async def cmd_forge(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not authorized(update):
         return
     sp, st, sa, sv = _make_senders(update)
-    from agent import run_agent
-    await run_agent(update.effective_chat.id, "forge content package", sp, st, sa, sv)
+    await _safe_run_agent(update, "forge content package", sp, st, sa, sv)
 
 
 async def cmd_forge_x(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not authorized(update):
         return
     sp, st, sa, sv = _make_senders(update)
-    from agent import run_agent
-    await run_agent(update.effective_chat.id, "generate X posts for the week", sp, st, sa, sv)
+    await _safe_run_agent(update, "generate X posts for the week", sp, st, sa, sv)
 
 
 async def cmd_forge_ig(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not authorized(update):
         return
     sp, st, sa, sv = _make_senders(update)
-    from agent import run_agent
-    await run_agent(update.effective_chat.id, "generate instagram carousel", sp, st, sa, sv)
+    await _safe_run_agent(update, "generate instagram carousel", sp, st, sa, sv)
 
 
 async def cmd_trend(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not authorized(update):
         return
     sp, st, sa, sv = _make_senders(update)
-    from agent import run_agent
-    await run_agent(update.effective_chat.id, "pull trend brief", sp, st, sa, sv)
+    await _safe_run_agent(update, "pull trend brief", sp, st, sa, sv)
 
 
 async def cmd_clip(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -169,15 +176,11 @@ async def cmd_clip(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(args) < 4:
         await update.message.reply_text("Usage: /clip <youtube_url> <start_MM:SS> <end_MM:SS> <hook text>")
         return
-    url = args[0]
-    start = args[1]
-    end = args[2]
     hook = " ".join(args[3:])
     sp, st, sa, sv = _make_senders(update)
-    from agent import run_agent
-    await run_agent(
-        update.effective_chat.id,
-        f"cut and render clip from {url} from {start} to {end} with hook text: {hook}",
+    await _safe_run_agent(
+        update,
+        f"cut and render clip from {args[0]} from {args[1]} to {args[2]} with hook text: {hook}",
         sp, st, sa, sv
     )
 
@@ -221,8 +224,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not text:
         return
     sp, st, sa, sv = _make_senders(update)
-    from agent import run_agent
-    await run_agent(update.effective_chat.id, text, sp, st, sa, sv)
+    await _safe_run_agent(update, text, sp, st, sa, sv)
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
