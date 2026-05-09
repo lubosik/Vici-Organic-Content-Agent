@@ -23,7 +23,7 @@ def _generate_search_terms() -> list:
     """
     import re
     import json
-    import anthropic as anthropic_lib
+    import ai_client as anthropic_lib
 
     today = datetime.now()
     month_year = today.strftime("%B %Y")

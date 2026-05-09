@@ -126,7 +126,7 @@ async def _safe_run_agent(update: Update, message: str, sp, st, sa, sv):
     except Exception as e:
         logger.exception("run_agent failed")
         try:
-            await update.message.reply_text(f"Something went wrong: {e}\n\nPlease try again.")
+            await update.message.reply_text("Something went wrong. Please try again in a moment.")
         except Exception:
             pass
 
@@ -203,7 +203,8 @@ async def cmd_analytics(update: Update, context: ContextTypes.DEFAULT_TYPE):
         summary = await asyncio.to_thread(get_analytics_summary)
         await send_long(update, summary)
     except Exception as e:
-        await update.message.reply_text(f"Analytics error: {e}")
+        logger.exception("Analytics error")
+        await update.message.reply_text("Analytics unavailable right now. Try again in a moment.")
 
 
 async def cmd_setup(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -222,7 +223,8 @@ async def cmd_setup(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await asyncio.to_thread(setup_vici_workspace)
         await update.message.reply_text("Fastlane workspace configured.")
     except Exception as e:
-        await update.message.reply_text(f"Setup failed: {e}")
+        logger.exception("Setup failed")
+        await update.message.reply_text("Setup failed. Check that your Fastlane API key is configured correctly.")
 
 
 async def cmd_stop(update: Update, context: ContextTypes.DEFAULT_TYPE):

@@ -295,7 +295,7 @@ async def _send_clean(send_text_fn, text: str):
             await send_text_fn(chunk)
 
 
-async def _dispatch_tool(tool_name: str, args: dict, send_progress, send_text=None) -> str:
+async def _dispatch_tool(tool_name: str, args: dict, send_progress, send_text=None, send_audio=None, send_video=None) -> str:
     """Execute a tool and return the result as a string."""
     try:
         if tool_name == "scout_url":
@@ -537,7 +537,7 @@ async def run_agent(chat_id: int, user_message: str, send_progress, send_text, s
                 tool_choice="auto",
             )
         except Exception as e:
-            await send_text(f"Agent error calling AI: {e}\n\nPlease try again.")
+            await send_text("The AI model is temporarily unavailable. Please try again in a moment.")
             return
 
         msg = response.choices[0].message
@@ -563,7 +563,7 @@ async def run_agent(chat_id: int, user_message: str, send_progress, send_text, s
                 fn_args = {}
 
             try:
-                result = await _dispatch_tool(fn_name, fn_args, send_progress, send_text)
+                result = await _dispatch_tool(fn_name, fn_args, send_progress, send_text, send_audio, send_video)
             except _ScoutComplete as sc:
                 # Analysis already sent to user. Add to history and stop.
                 add_message(chat_id, "tool", json.dumps({
@@ -575,9 +575,9 @@ async def run_agent(chat_id: int, user_message: str, send_progress, send_text, s
                 add_message(chat_id, "assistant", "Analysis complete. Which clips do you want me to cut? Just say \"cut clip 1\", \"cut clip 3\", etc.")
                 await send_text("Which clips do you want cut? Say \"cut clip 1\" or \"cut clips 1, 3, 5\" etc.")
                 return
-            except _TrendComplete as tc:
+            except _TrendComplete as trend_exc:
                 # Trend brief already sent to user. Add to history and stop.
-                add_message(chat_id, "assistant", tc.result[:500])
+                add_message(chat_id, "assistant", trend_exc.result[:500] if hasattr(trend_exc, 'result') else str(trend_exc))
                 await send_text("Want me to produce a full video from this topic? Say 'make the video' and I will generate the script, ElevenLabs voiceover, and send you the MP4.")
                 return
             except _VideoComplete as vc:
