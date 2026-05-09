@@ -165,6 +165,61 @@ TOOLS = [
 ]
 
 
+def _sanitize_history(history: list) -> list:
+    """
+    Remove orphaned tool_use/tool_result pairs.
+    A corrupted history (mismatched IDs or unpaired blocks) causes API 400s.
+    This happens when Bedrock-routed models mangle tool call IDs (strips underscores),
+    leaving tool_result blocks whose tool_call_id never matches any tool_use id.
+    """
+    sanitized = []
+    i = 0
+    while i < len(history):
+        msg = history[i]
+        role = msg.get("role", "")
+
+        if role == "assistant" and msg.get("tool_calls"):
+            # Collect tool_call IDs from this assistant turn
+            tc_ids = set()
+            for tc in msg["tool_calls"]:
+                if isinstance(tc, dict):
+                    tc_ids.add(tc.get("id", ""))
+                else:
+                    try:
+                        tc_ids.add(tc.id)
+                    except Exception:
+                        pass
+
+            # Look ahead for matching tool results
+            j = i + 1
+            following_results = []
+            while j < len(history) and history[j].get("role") == "tool":
+                following_results.append(history[j])
+                j += 1
+
+            result_ids = {r.get("tool_call_id", "") for r in following_results}
+
+            if result_ids and result_ids == tc_ids:
+                # Perfect match — keep the pair
+                sanitized.append(msg)
+                sanitized.extend(following_results)
+                i = j
+            elif result_ids:
+                # Partial or mismatched IDs — drop the whole pair to avoid 400
+                i = j
+            else:
+                # No results at all — drop the assistant tool_calls message
+                i += 1
+        elif role == "tool":
+            # Orphaned tool result (no preceding assistant tool_calls) — drop it
+            i += 1
+        else:
+            sanitized.append(msg)
+            i += 1
+
+    return sanitized
+
+
 def _get_openai_client() -> OpenAI:
     return OpenAI(
         api_key=os.getenv("OPENROUTER_API_KEY"),
@@ -302,11 +357,12 @@ async def run_agent(chat_id: int, user_message: str, send_progress, send_text, s
     while iteration < MAX_ITERATIONS:
         iteration += 1
 
+        clean_history = _sanitize_history(history)
         try:
             response = await asyncio.to_thread(
                 client.chat.completions.create,
                 model=ROUTER_MODEL,
-                messages=history,
+                messages=clean_history,
                 tools=TOOLS,
                 tool_choice="auto",
             )
