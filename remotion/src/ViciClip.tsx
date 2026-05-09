@@ -6,6 +6,7 @@ import {
   useCurrentFrame,
   useVideoConfig,
   interpolate,
+  Easing,
 } from 'remotion';
 
 type Props = {
@@ -19,12 +20,12 @@ export const ViciClip: React.FC<Props> = ({ src, hookText }) => {
 
   const hookOpacity = interpolate(
     frame,
-    [0, 8, durationInFrames - 15, durationInFrames - 5],
+    [0, 8, durationInFrames - 12, durationInFrames - 4],
     [0, 1, 1, 0],
     { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' }
   );
 
-  const brandOpacity = interpolate(frame, [0, 10], [0, 0.8], {
+  const brandOpacity = interpolate(frame, [0, 12], [0, 0.9], {
     extrapolateRight: 'clamp',
   });
 
@@ -34,21 +35,19 @@ export const ViciClip: React.FC<Props> = ({ src, hookText }) => {
         src={staticFile(src)}
         style={{ width: '100%', height: '100%', objectFit: 'cover' }}
       />
-
-      {/* Top gradient for hook text readability */}
+      {/* Top gradient */}
       <AbsoluteFill
         style={{
-          background: 'linear-gradient(to bottom, rgba(0,0,0,0.75) 0%, transparent 40%)',
+          background: 'linear-gradient(to bottom, rgba(0,0,0,0.7) 0%, transparent 30%)',
         }}
       />
-
-      {/* Hook text — top left */}
+      {/* Hook text — top area, 16:9 layout */}
       <AbsoluteFill
         style={{
           opacity: hookOpacity,
           justifyContent: 'flex-start',
           alignItems: 'flex-start',
-          padding: '36px 32px',
+          padding: '48px 60px',
         }}
       >
         <div
@@ -56,24 +55,23 @@ export const ViciClip: React.FC<Props> = ({ src, hookText }) => {
             color: '#FFFFFF',
             fontFamily: 'sans-serif',
             fontWeight: 900,
-            fontSize: 38,
-            lineHeight: 1.15,
-            maxWidth: '88%',
-            textShadow: '2px 3px 10px rgba(0,0,0,0.95)',
+            fontSize: 52,
+            lineHeight: 1.2,
+            maxWidth: '75%',
+            textShadow: '2px 3px 12px rgba(0,0,0,0.95)',
             letterSpacing: '-0.5px',
           }}
         >
           {hookText}
         </div>
       </AbsoluteFill>
-
       {/* Brand watermark — bottom right */}
       <AbsoluteFill
         style={{
           opacity: brandOpacity,
           justifyContent: 'flex-end',
           alignItems: 'flex-end',
-          padding: '20px 28px',
+          padding: '24px 36px',
         }}
       >
         <div
@@ -81,9 +79,9 @@ export const ViciClip: React.FC<Props> = ({ src, hookText }) => {
             color: '#00D4AA',
             fontFamily: 'sans-serif',
             fontWeight: 700,
-            fontSize: 17,
-            letterSpacing: '1.5px',
-            textShadow: '1px 1px 6px rgba(0,0,0,0.9)',
+            fontSize: 20,
+            letterSpacing: '2px',
+            textShadow: '1px 1px 8px rgba(0,0,0,0.9)',
           }}
         >
           VICIPEPTIDES.COM

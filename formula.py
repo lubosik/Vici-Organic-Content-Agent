@@ -82,38 +82,42 @@ CONTENT TO ANALYSE:
 YOUR TASK
 ════════════════════════════════════════════════════
 
-Identify the TOP 5 clippable moments in this content using the formula above.
-Rank them by virality score (highest first).
+CRITICAL RULES BEFORE STARTING:
+1. SKIP THE FIRST 2 MINUTES. The opening 0:00-2:00 is trailer/cold open content — never clip it.
+2. Find EVERY viral moment in the content. There is no limit. Do not stop at 5.
+3. Every clip must cover a DIFFERENT topic, angle, or moment. No two clips can overlap in subject matter.
+4. Score EVERY candidate. Only include clips that score 6+ using the scoring framework.
+5. Rank ALL identified clips by virality score, highest first.
 
-For each clip, return:
+For each clip found, return this EXACT format:
 
 CLIP [N] — VIRALITY SCORE: [X]/10
 ─────────────────────────────────────────────────
-TIMESTAMP (if available): [start] -> [end]
-EXACT QUOTE (opening line): "[first sentence of the clip]"
-BELIEF REVERSAL: [what assumption does this flip?]
-EMOTIONAL ENGINE: [what emotion does this trigger and why?]
-COMMENT WAR POTENTIAL: [what is the split? who agrees, who argues?]
-CLIP TYPE: [type]
-VICI BRAND FIT: [PASS / REQUIRES REFRAME]
-BONUS SIGNALS: [list any peptide niche bonus signals present]
+TIMESTAMP: [MM:SS] → [MM:SS]
+EXACT OPENING LINE: "[The literal first sentence of this moment]"
+BELIEF REVERSAL: [What assumption does this flip?]
+EMOTIONAL ENGINE: [Emotion + why it triggers]
+COMMENT WAR: [Who agrees vs who argues]
+CLIP TYPE: [Contrarian Truth / Biological Reframe / Hidden Danger / Institutional Inversion / Identity Friction]
+VICI BRAND FIT: [PASS / REQUIRES REFRAME — if reframe, state the exact angle]
+BONUS SIGNALS: [Any peptide niche bonuses present]
 
-HOOK FOR OVERLAY TEXT:
-"[The on-screen text hook]"
+HOOK TEXT (for overlay):
+"[Bold on-screen text — max 10 words — captures the belief reversal]"
 
 VICI ADAPTATION:
-- Opening hook (for text overlay or caption):
-- What B-roll plays underneath:
-- Voiceover adaptation (if it needs a Vici intro):
-- CTA at the end:
+Opening hook: [exact text overlay or caption]
+B-roll: [what plays underneath]
+CTA: [which CTA from the Vici library fits]
 
 ─────────────────────────────────────────────────
 
-After all 5 clips, add:
+After ALL clips, add:
 
-SERIES POTENTIAL:
-If these clips can form a multi-part series, outline the 4-6 part arc.
+SERIES ARCS:
+[Group related clips into 3-6 part series if applicable]
+List each series: name, episode order, connecting thread.
 
-TOP CLIP SUMMARY:
-One sentence on why the #1 clip is the lead clip.
+TOTAL CLIPS FOUND: [N]
+TOP 3 TO CUT FIRST: Clips [N], [N], [N] — [one line each on why]
 """
