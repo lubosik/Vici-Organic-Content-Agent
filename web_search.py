@@ -15,25 +15,28 @@ def search_web(query: str, max_age_days: int = 7) -> str:
         return f"[CACHED RESULT]\n{cached}"
 
     try:
+        from datetime import datetime
+        today_str = datetime.now().strftime("%B %d, %Y")
+
         client = OpenAI(
             api_key=os.getenv("OPENROUTER_API_KEY"),
             base_url="https://openrouter.ai/api/v1",
         )
 
-        prompt = f"""Research this topic. Focus only on information from the last {max_age_days} days:
+        prompt = f"""Today is {today_str}. Research this topic and return only information published in the last {max_age_days} days:
 
 {query}
 
-Priority sources: PubMed, bioRxiv, medical journals, biotech news, peer-reviewed literature.
-For peptide/longevity topics: clinical trial data, mechanism research, safety data.
+Focus on: published research, clinical data, expert analysis, news from credible sources.
+For peptide/longevity topics prioritise: PubMed, bioRxiv, medical journals, biotech publications.
 
-Return:
-- 5-8 bullet points with key findings
-- Date of publication where known
-- Source URL for each finding
+Format your response as:
+- Bullet points with key findings
+- Include publication date where known
+- Include source URL for each finding
 - Flag anything older than {max_age_days} days
 
-Be concise and factual only."""
+Be concise. 5 to 8 bullet points maximum."""
 
         response = client.chat.completions.create(
             model=os.getenv("RESEARCH_MODEL", "perplexity/sonar"),

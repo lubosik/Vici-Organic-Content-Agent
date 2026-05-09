@@ -9,17 +9,98 @@ from apify_client import ApifyClient
 from content_db import url_already_scouted, save_scout_analysis
 
 
-PEPTIDE_SEARCH_TERMS = [
-    "peptides podcast 2025",
-    "BPC-157 podcast",
-    "semaglutide GLP-1 podcast",
-    "longevity peptides interview",
-    "biohacking peptides",
-    "peptide research podcast",
-]
-
 MAX_AGE_DAYS = 7
 MIN_VIEWS = 1000  # Filter out micro-channels
+
+
+def _generate_search_terms() -> list:
+    """
+    Generate dynamic YouTube search queries based on:
+    - Current date (for recency signals)
+    - Topics already researched (to avoid redundancy)
+    - Trending keywords from DataForSEO
+    Falls back to date-stamped static queries if AI generation fails.
+    """
+    import re
+    import json
+    import anthropic as anthropic_lib
+
+    today = datetime.now()
+    month_year = today.strftime("%B %Y")
+    year = today.strftime("%Y")
+    day_of_week = today.strftime("%A")
+
+    # What topics are already covered?
+    covered_topics = []
+    try:
+        from content_db import get_all_recent_topics, get_recent_analyses
+        recent = get_all_recent_topics(days=14)
+        covered_topics = [t['topic'] for t in recent[:8]]
+        analyses = get_recent_analyses(limit=5)
+        for a in analyses:
+            if a.get('title'):
+                covered_topics.append(a['title'])
+    except Exception:
+        pass
+
+    # What is trending this week?
+    trending_text = ""
+    try:
+        from seo_research import get_google_trends
+        trending_text = get_google_trends(
+            ["BPC-157", "semaglutide", "tirzepatide", "GLP-1", "peptides longevity"],
+            "past_7_days"
+        )
+    except Exception:
+        pass
+
+    covered_str = "\n".join(f"- {t}" for t in covered_topics[:8]) if covered_topics else "- Nothing researched yet"
+
+    prompt = f"""Today is {day_of_week}, {today.strftime('%B %d, %Y')}.
+
+Generate 6 YouTube search queries to find NEW peptide/longevity podcast episodes or expert interviews published THIS WEEK.
+
+Already covered in our database (skip these topics):
+{covered_str}
+
+Trending keywords this week:
+{trending_text[:400] if trending_text else "Data unavailable"}
+
+Rules for the queries:
+1. Include "{month_year}" or "{year}" in at least 4 of the 6 queries to filter for recent content
+2. Target expert interviews, podcast episodes, scientific discussions - not short-form content
+3. Cover different compounds/angles so each query finds different content
+4. Avoid topics already in our database
+5. Mix: specific compounds (BPC-157, GHK-Cu, Tesamorelin), general longevity, GLP-1/weight research
+
+Return ONLY a valid JSON array of exactly 6 strings. No explanation, no markdown, just the array."""
+
+    try:
+        client = anthropic_lib.Anthropic()
+        response = client.messages.create(
+            model=os.getenv("AI_MODEL", "claude-sonnet-4-6"),
+            max_tokens=250,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        text = response.content[0].text.strip()
+        match = re.search(r'\[.*?\]', text, re.DOTALL)
+        if match:
+            queries = json.loads(match.group())
+            if isinstance(queries, list) and len(queries) >= 4:
+                print(f"[PODCAST MONITOR] Generated {len(queries)} dynamic queries for {month_year}")
+                return queries[:6]
+    except Exception as e:
+        print(f"[PODCAST MONITOR] AI query generation failed: {e}")
+
+    # Date-stamped fallback (still better than static)
+    return [
+        f"peptides podcast {month_year}",
+        f"BPC-157 longevity interview {year}",
+        f"semaglutide GLP-1 research {month_year}",
+        f"biohacking peptides {month_year}",
+        f"tesamorelin GHK-Cu compound profile {year}",
+        f"retatrutide tirzepatide science discussion {year}",
+    ]
 
 
 def _parse_date(date_str: str):
@@ -62,7 +143,9 @@ def find_new_peptide_podcasts() -> str:
     all_videos = []
     seen_ids = set()
 
-    for term in PEPTIDE_SEARCH_TERMS[:4]:  # Limit API calls
+    search_terms = _generate_search_terms()
+    print(f"[PODCAST MONITOR] Using {len(search_terms)} dynamic search queries")
+    for term in search_terms:
         try:
             print(f"[PODCAST MONITOR] Searching: {term}")
             run = client.actor("streamers/youtube-scraper").call(
