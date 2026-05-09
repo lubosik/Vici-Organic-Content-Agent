@@ -10,7 +10,7 @@ import asyncio
 from openai import OpenAI
 from conversation_store import get_history, add_message
 
-ROUTER_MODEL = os.getenv("ROUTER_MODEL", "anthropic/claude-haiku-4-5")
+ROUTER_MODEL = os.getenv("ROUTER_MODEL", "openai/gpt-4o-mini")
 
 TOOLS = [
     {
